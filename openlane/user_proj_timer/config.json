@@ -1,11 +1,10 @@
 {
-    "DESIGN_NAME": "user_proj_timer",
+    "DESIGN_NAME": "cache_aware_counter",
     "DESIGN_IS_CORE": 0,
     "VERILOG_FILES": [
-        "dir::../../verilog/rtl/user_proj_timer.v",
-        "dir::../../verilog/rtl/timer.v"
+        "verilog/rtl/cache_aware_counter.v"
     ],
-    "CLOCK_PERIOD": 25,
+    "CLOCK_PERIOD": 10.0,
     "CLOCK_PORT": "wb_clk_i",
     "CLOCK_NET": "counter.clk",
     "FP_SIZING": "absolute",
@@ -30,6 +29,9 @@
         "vssd1"
     ],
     "RUN_CVC": 1,
+
+    "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
+
     "pdk::sky130*": {
         "FP_CORE_UTIL": 45,
         "RT_MAX_LAYER": "met4",
@@ -50,8 +52,9 @@
             "CLOCK_PERIOD": 10
         }
     },
+
     "pdk::gf180mcuC": {
-        "STD_CELL_LIBRARY": "gf180mcu_fd_sc_mcu7t5v0",
+        "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
         "CLOCK_PERIOD": 24.0,
         "FP_CORE_UTIL": 40,
         "RT_MAX_LAYER": "Metal4",
