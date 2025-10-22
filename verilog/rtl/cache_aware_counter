@@ -1,5 +1,5 @@
 //Cache Aware Counters for Microwatt
-module cache_2hack #(parameter COUNTER_WIDTH=64,parameter ADDR_WIDTH=5,parameter DATA_WIDTH=32)(
+module cache_aware_counter #(parameter COUNTER_WIDTH=64,parameter ADDR_WIDTH=5,parameter DATA_WIDTH=32)(
 input wire clk,
 input wire rst_n,
 input wire read_access,
@@ -213,5 +213,6 @@ reg_rd_valid<=0;
 end
 end
 endmodule
+
 
 
