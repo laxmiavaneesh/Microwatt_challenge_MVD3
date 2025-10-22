@@ -1,4 +1,4 @@
-`timescale 1ns/1ps
+//Cache Aware Counters for Microwatt
 module cache_2hack #(parameter COUNTER_WIDTH=64,parameter ADDR_WIDTH=5,parameter DATA_WIDTH=32)(
 input wire clk,
 input wire rst_n,
@@ -213,4 +213,5 @@ reg_rd_valid<=0;
 end
 end
 endmodule
+
 
