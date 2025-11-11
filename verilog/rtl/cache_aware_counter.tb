@@ -1,0 +1,264 @@
+
+.......................................................
+`timescale 1ns/1ps
+// ============================================================================
+//  tb_hack.v
+//  Self-checking testbench for cache_perf_counters_hack.v
+//  (Hackathon version with sticky clear_ack and threshold interrupt)
+//  Author: [Your Name] | OpenPOWER Hackathon 2025
+// ============================================================================
+
+module last_tb;
+
+    // Parameters (match DUT)
+    localparam COUNTER_WIDTH = 64;
+    localparam ADDR_WIDTH    = 5;
+    localparam DATA_WIDTH    = 32;
+
+    // Clock / Reset
+    reg clk;
+    reg rst_n;
+
+    // DUT I/O
+    reg  read_access;
+    reg  write_access;
+    reg  access_hit;
+
+    reg  [ADDR_WIDTH-1:0] reg_addr;
+    reg                   reg_rd_en;
+    wire [DATA_WIDTH-1:0] reg_rd_data;
+    wire                  reg_rd_valid;
+
+    reg                   reg_wr_en;
+    reg  [DATA_WIDTH-1:0] reg_wr_data;
+
+    wire                  int_out; // interrupt pulse output
+
+    // Internal testbench variables
+    reg [DATA_WIDTH-1:0] last_rd_data;
+    reg last_rd_valid;
+
+    reg [DATA_WIDTH-1:0] d0, d1, d2, d3;
+    reg [DATA_WIDTH-1:0] h0, h1, h2, h3;
+    reg seen_int;
+
+    // =========================================================================
+    //  DUT Instantiation
+    // =========================================================================
+    cache_2hack #(
+        .COUNTER_WIDTH(COUNTER_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH)
+    ) dut (
+        .clk(clk),
+        .rst_n(rst_n),
+        .read_access(read_access),
+        .write_access(write_access),
+        .access_hit(access_hit),
+        .reg_addr(reg_addr),
+        .reg_rd_en(reg_rd_en),
+        .reg_rd_data(reg_rd_data),
+        .reg_rd_valid(reg_rd_valid),
+        .reg_wr_en(reg_wr_en),
+        .reg_wr_data(reg_wr_data),
+        .int_out(int_out)
+    );
+
+    // =========================================================================
+    //  Clock Generation
+    // =========================================================================
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk; // 10ns period
+    end
+
+    // =========================================================================
+    //  VCD Dump for waveform inspection
+  
+    // =========================================================================
+    //  Utility Tasks
+    // =========================================================================
+
+    // Single-beat read
+    task bus_read;
+        input [ADDR_WIDTH-1:0] addr;
+        begin
+            @(posedge clk);
+            reg_addr  <= addr;
+            reg_rd_en <= 1'b1;
+            @(posedge clk);
+            reg_rd_en <= 1'b0;
+            @(posedge clk);
+            last_rd_data  = reg_rd_data;
+            last_rd_valid = reg_rd_valid;
+        end
+    endtask
+
+    // Single-beat write
+    task bus_write;
+        input [ADDR_WIDTH-1:0] addr;
+        input [DATA_WIDTH-1:0] data;
+        begin
+            @(posedge clk);
+            reg_addr    <= addr;
+            reg_wr_data <= data;
+            reg_wr_en   <= 1'b1;
+            @(posedge clk);
+            reg_wr_en   <= 1'b0;
+            @(posedge clk);
+        end
+    endtask
+
+    // Pulse one read access
+    task pulse_read;
+        input hit;
+        begin
+            @(posedge clk);
+            read_access <= 1'b1;
+            access_hit  <= hit;
+            @(posedge clk);
+            read_access <= 1'b0;
+            access_hit  <= 1'b0;
+        end
+    endtask
+
+    // Pulse one write access
+    task pulse_write;
+        input hit;
+        begin
+            @(posedge clk);
+            write_access <= 1'b1;
+            access_hit   <= hit;
+            @(posedge clk);
+            write_access <= 1'b0;
+            access_hit   <= 1'b0;
+        end
+    endtask
+
+    // =========================================================================
+    //  Test Sequence
+    // =========================================================================
+    initial begin
+        // Initialize
+        read_access  = 0;
+        write_access = 0;
+        access_hit   = 0;
+        reg_addr     = 0;
+        reg_rd_en    = 0;
+        reg_wr_en    = 0;
+        reg_wr_data  = 0;
+        last_rd_data = 0;
+        last_rd_valid= 0;
+        seen_int     = 0;
+
+        // Reset
+        rst_n = 0;
+        repeat(3) @(posedge clk);
+        rst_n = 1;
+        @(posedge clk);
+        $display("[%0t] Reset released", $time);
+
+        // ------------------------------------------------------------
+        // 1) Basic counting test
+        // ------------------------------------------------------------
+        pulse_read(1);
+        pulse_read(1);
+        pulse_read(0);
+        pulse_write(1);
+        pulse_write(1);
+        pulse_write(1);
+        pulse_write(0);
+        pulse_write(0);
+        @(posedge clk); @(posedge clk);
+
+        bus_read(5'd0); d0 = last_rd_data;
+        bus_read(5'd1); d1 = last_rd_data;
+        bus_read(5'd2); d2 = last_rd_data;
+        bus_read(5'd3); d3 = last_rd_data;
+
+        if (d0!==32'd2 || d1!==32'd1 || d2!==32'd3 || d3!==32'd2)
+            $error("Count mismatch: RH=%0d RM=%0d WH=%0d WM=%0d", d0,d1,d2,d3);
+        else
+            $display("[%0t] Basic counting OK", $time);
+
+        // ------------------------------------------------------------
+        // 2) Snapshot atomicity
+        // ------------------------------------------------------------
+        bus_read(5'd0);
+        pulse_read(1);
+        bus_read(5'd5); h0 = last_rd_data;
+        if (h0 !== 32'd0) $error("Snapshot atomicity failed for read_hit");
+        else $display("[%0t] Snapshot atomicity for read_hit OK", $time);
+
+        bus_read(5'd2);
+        pulse_write(1);
+        bus_read(5'd7); h2 = last_rd_data;
+        if (h2 !== 32'd0) $error("Snapshot atomicity failed for write_hit");
+        else $display("[%0t] Snapshot atomicity for write_hit OK", $time);
+
+        // ------------------------------------------------------------
+        // 3) Threshold + interrupt test
+        // ------------------------------------------------------------
+        bus_write(5'd10, 32'd4); // threshold for read_hit
+        bus_read(5'd10);
+        if (last_rd_data !== 32'd4) $error("Threshold mismatch");
+
+        // clear int_pending before trigger
+        bus_read(5'd9);
+
+        pulse_read(1); // Should cross threshold
+
+        seen_int = 0;
+        @(posedge clk);
+        if (int_out) seen_int = 1;
+        @(posedge clk);
+        if (int_out) seen_int = 1;
+
+        if (!seen_int) begin
+            bus_read(5'd9);
+            if (((last_rd_data >> 24) & 1) == 1) seen_int = 1;
+        end
+
+        if (!seen_int) $error("Interrupt not detected");
+        else $display("[%0t] Interrupt observed", $time);
+
+        // Clear int_pending by STATUS read
+        bus_read(5'd9);
+        bus_read(5'd9);
+        if (((last_rd_data >> 24) & 1) != 0) $error("int_pending not cleared");
+        else $display("[%0t] Interrupt pending cleared", $time);
+
+        // ------------------------------------------------------------
+        // 4) CONTROL clear + sticky ack check
+        // ------------------------------------------------------------
+        bus_write(5'd4, 32'h1); // request clear
+
+        // STATUS should now show sticky clear_ack = 1
+        bus_read(5'd9);
+        if (((last_rd_data >> 16) & 1) !== 1)
+            $error("Sticky clear_ack not set after clear (STATUS=%h)", last_rd_data);
+        else
+            $display("[%0t] Sticky clear_ack observed (STATUS=%h)", $time, last_rd_data);
+
+        // Next STATUS read should clear sticky bit
+        bus_read(5'd9);
+        if (((last_rd_data >> 16) & 1) !== 0)
+            $error("Sticky clear_ack did not clear after STATUS read");
+        else
+            $display("[%0t] Sticky clear_ack cleared after STATUS read", $time);
+
+        // Verify counters are zero
+        bus_read(5'd0); d0 = last_rd_data;
+        bus_read(5'd1); d1 = last_rd_data;
+        bus_read(5'd2); d2 = last_rd_data;
+        bus_read(5'd3); d3 = last_rd_data;
+        if (d0|d1|d2|d3)
+            $error("Counters not cleared: %0d %0d %0d %0d", d0,d1,d2,d3);
+        else
+            $display("[%0t] Counters cleared successfully", $time);
+
+        $display("[%0t] ALL TESTS PASSED (hack)", $time);
+        $finish;
+    end
+
+endmodule
